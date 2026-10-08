@@ -1,0 +1,53 @@
+<Window x:Class="materials.StockDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="420" SizeToContent="Height" ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Icon="Assets/app.ico"
+        Background="{DynamicResource CardBrush}"
+        FontFamily="{StaticResource UiFont}"
+        Foreground="{DynamicResource TextBrush}"
+        UseLayoutRounding="True">
+    <!-- 存入 / 拿出 / 借出：輸入數量，拿出要寫用在哪裡，借出要寫借給誰 -->
+    <StackPanel Margin="22,18,22,20">
+        <!-- 要處理的物料與目前庫存 -->
+        <Border Background="{DynamicResource InputBgBrush}" CornerRadius="12" Padding="14,10" Margin="0,0,0,16">
+            <DockPanel>
+                <Border x:Name="KindBadge" DockPanel.Dock="Right" CornerRadius="8" Padding="10,4" VerticalAlignment="Center" Margin="10,0,0,0">
+                    <TextBlock x:Name="KindText" FontSize="12" FontWeight="SemiBold"/>
+                </Border>
+                <StackPanel>
+                    <TextBlock x:Name="ItemText" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="StockText" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <TextBlock x:Name="QtyLabel" Style="{StaticResource FieldLabel}"/>
+        <Grid>
+            <TextBox x:Name="QtyBox" Padding="12,8,76,8" TextChanged="Field_TextChanged"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,4,0">
+                <Button Content="&#xE738;" Style="{StaticResource FieldIconButton}" ToolTip="減 1" Click="QtyMinus_Click"/>
+                <Button Content="&#xE710;" Style="{StaticResource FieldIconButton}" ToolTip="加 1" Margin="2,0,0,0" Click="QtyPlus_Click"/>
+            </StackPanel>
+        </Grid>
+        <TextBlock x:Name="PreviewText" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="2,6,0,14"/>
+
+        <StackPanel x:Name="BorrowerPanel" Margin="0,0,0,14">
+            <TextBlock Text="借給誰 *" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="BorrowerBox" TextChanged="Field_TextChanged"/>
+            <WrapPanel x:Name="BorrowerChips" Margin="0,8,0,0"/>
+        </StackPanel>
+
+        <TextBlock x:Name="PurposeLabel" Style="{StaticResource FieldLabel}"/>
+        <TextBox x:Name="PurposeBox" TextChanged="Field_TextChanged"/>
+        <WrapPanel x:Name="PurposeChips" Margin="0,8,0,0"/>
+
+        <TextBlock x:Name="ErrorText" Foreground="{DynamicResource DangerBrush}" FontSize="12" Margin="2,8,0,0"
+                   TextWrapping="Wrap" Visibility="Collapsed"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,18,0,0">
+            <Button IsCancel="True" MinWidth="88" Margin="0,0,8,0" Content="取消"/>
+            <Button x:Name="OkButton" Style="{StaticResource PrimaryButton}" IsDefault="True" MinWidth="88" Click="Ok_Click"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

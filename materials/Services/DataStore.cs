@@ -5,11 +5,20 @@ using materials.Models;
 
 namespace materials.Services
 {
-    /// <summary>存檔內容：物料清單 + 分類清單（含還沒放物料的空分類）。</summary>
+    /// <summary>存檔內容：物料清單 + 分類清單（含還沒放物料的空分類）+ 預設單位清單 + 出入庫紀錄與借出單。</summary>
     public class MaterialData
     {
         public List<MaterialItem> Items { get; set; } = new();
         public List<string> Categories { get; set; } = new();
+
+        /// <summary>預設單位；舊版存檔沒有這個欄位時為 null，由 UnitService.Clean 補上預設清單。</summary>
+        public List<string>? Units { get; set; }
+
+        /// <summary>出入庫紀錄（存入、拿出、借出、歸還），依時間先後。</summary>
+        public List<StockRecord> Records { get; set; } = new();
+
+        /// <summary>借出單（含已還清的）。</summary>
+        public List<Loan> Loans { get; set; } = new();
     }
 
     /// <summary>
@@ -35,8 +44,7 @@ namespace materials.Services
 
         public static MaterialData Load() => Load(FilePath);
 
-        public static void Save(IEnumerable<MaterialItem> items, IEnumerable<string> categories) =>
-            Save(FilePath, items, categories);
+        public static void Save(MaterialData data) => Save(FilePath, data);
 
         internal static MaterialData Load(string path)
         {
@@ -53,9 +61,8 @@ namespace materials.Services
             }
         }
 
-        internal static void Save(string path, IEnumerable<MaterialItem> items, IEnumerable<string> categories)
+        internal static void Save(string path, MaterialData data)
         {
-            var data = new MaterialData { Items = items.ToList(), Categories = categories.ToList() };
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(data, Options));

@@ -47,11 +47,12 @@ namespace materials.Tests
             var path = Path.Combine(_root, "sub", DataStore.FileName);
             var items = Sample();
 
-            DataStore.Save(path, items, ["文具", "五金", "空分類"]);
+            DataStore.Save(path, new MaterialData { Items = items, Categories = ["文具", "五金", "空分類"], Units = ["包", "盒"] });
             var data = DataStore.Load(path);
 
             AssertSame(items, data.Items);
             Assert.Equal(["文具", "五金", "空分類"], data.Categories);
+            Assert.Equal(["包", "盒"], data.Units);
             Assert.False(File.Exists(path + ".tmp"));
         }
 
@@ -59,7 +60,7 @@ namespace materials.Tests
         public void DataStore_StoresChineseAsReadableText()
         {
             var path = Path.Combine(_root, DataStore.FileName);
-            DataStore.Save(path, Sample(), []);
+            DataStore.Save(path, new MaterialData { Items = Sample() });
             Assert.Contains("影印紙", File.ReadAllText(path));
         }
 
@@ -88,7 +89,7 @@ namespace materials.Tests
         public void DataStore_DoesNotSaveDisplayOnlyProperties()
         {
             var path = Path.Combine(_root, DataStore.FileName);
-            DataStore.Save(path, Sample(), []);
+            DataStore.Save(path, new MaterialData { Items = Sample() });
             var json = File.ReadAllText(path);
             Assert.DoesNotContain(nameof(MaterialItem.QuantityDisplay), json);
             Assert.DoesNotContain(nameof(MaterialItem.AvatarColor), json);
@@ -120,6 +121,29 @@ namespace materials.Tests
             Assert.Equal(ExcelService.Headers, Enumerable.Range(1, 6).Select(c => ws.Cell(1, c).GetString()));
             Assert.Equal(XLDataType.Number, ws.Cell(2, 4).DataType);
             Assert.Equal("007", ws.Cell(4, 3).GetString()); // 規格保持文字，前導 0 不會消失
+        }
+
+        [Fact]
+        public void Excel_Export_AddsRecordAndLoanSheets_ImportStillReadsItems()
+        {
+            var path = Path.Combine(_root, "export.xlsx");
+            var items = Sample();
+            var now = new DateTime(2026, 10, 8, 9, 0, 0);
+            var takeOut = StockService.TakeOut(items[0], 2, "會議室", now);
+            var (loan, lend) = StockService.Lend(items[0], 1, "小王", "", now);
+
+            ExcelService.Export(items, path, [takeOut, lend], [loan]);
+
+            using (var wb = new XLWorkbook(path))
+            {
+                Assert.Equal(["物料", "出入紀錄", "借出中"], wb.Worksheets.Select(w => w.Name));
+                var rs = wb.Worksheet("出入紀錄");
+                Assert.Equal("拿出", rs.Cell(2, 2).GetString());
+                Assert.Equal(-2, rs.Cell(2, 5).GetDouble()); // 拿出記成負數
+                Assert.Equal("會議室", rs.Cell(2, 7).GetString());
+                Assert.Equal("小王", wb.Worksheet("借出中").Cell(2, 4).GetString());
+            }
+            AssertSame(items, ExcelService.Import(path)); // 匯入只讀第一個工作表
         }
 
         [Fact]

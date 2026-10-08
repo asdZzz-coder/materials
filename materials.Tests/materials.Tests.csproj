@@ -24,9 +24,12 @@
     <Compile Include="..\materials\Services\ThemeService.cs" Link="Source\ThemeService.cs" />
     <Compile Include="..\materials\Services\DataStore.cs" Link="Source\DataStore.cs" />
     <Compile Include="..\materials\Services\CategoryService.cs" Link="Source\CategoryService.cs" />
+    <Compile Include="..\materials\Services\UnitService.cs" Link="Source\UnitService.cs" />
     <Compile Include="..\materials\Services\QuantityText.cs" Link="Source\QuantityText.cs" />
     <Compile Include="..\materials\Services\ExcelService.cs" Link="Source\ExcelService.cs" />
     <Compile Include="..\materials\Models\MaterialItem.cs" Link="Source\MaterialItem.cs" />
+    <Compile Include="..\materials\Models\StockRecord.cs" Link="Source\StockRecord.cs" />
+    <Compile Include="..\materials\Services\StockService.cs" Link="Source\StockService.cs" />
   </ItemGroup>
 
   <ItemGroup>

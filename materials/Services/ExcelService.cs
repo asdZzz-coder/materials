@@ -4,12 +4,19 @@ using materials.Models;
 
 namespace materials.Services
 {
-    /// <summary>Excel 匯出 / 匯入。欄位順序：名稱、分類、規格、數量、單位、備註。</summary>
+    /// <summary>
+    /// Excel 匯出 / 匯入。物料工作表的欄位順序：名稱、分類、規格、數量、單位、備註。
+    /// 匯出時另附「出入紀錄」「借出中」兩個工作表（只供查看，匯入時只讀第一個工作表）。
+    /// </summary>
     public static class ExcelService
     {
         public static readonly string[] Headers = { "名稱", "分類", "規格", "數量", "單位", "備註" };
 
-        public static void Export(IEnumerable<MaterialItem> items, string path)
+        public static readonly string[] RecordHeaders = { "時間", "動作", "名稱", "規格", "數量", "單位", "用途 / 說明", "借用人", "之後庫存" };
+        public static readonly string[] LoanHeaders = { "借出時間", "名稱", "規格", "借用人", "用途", "借出數量", "已還", "未還", "單位" };
+
+        public static void Export(IEnumerable<MaterialItem> items, string path,
+            IEnumerable<StockRecord>? records = null, IEnumerable<Loan>? loans = null)
         {
             using var wb = new XLWorkbook();
             var ws = wb.Worksheets.Add("物料");
@@ -32,7 +39,58 @@ namespace materials.Services
             }
             ws.Columns().AdjustToContents();
             ws.SheetView.FreezeRows(1);
+
+            if (records != null)
+            {
+                var rs = Sheet(wb, "出入紀錄", RecordHeaders);
+                int row = 2;
+                foreach (var x in records.OrderBy(x => x.Time))
+                {
+                    rs.Cell(row, 1).SetValue(x.Time);
+                    rs.Cell(row, 1).Style.DateFormat.Format = "yyyy/mm/dd hh:mm";
+                    rs.Cell(row, 2).SetValue(StockService.KindName(x.Kind));
+                    rs.Cell(row, 3).SetValue(Escape(x.ItemName));
+                    rs.Cell(row, 4).SetValue(Escape(x.ItemSpec));
+                    rs.Cell(row, 5).SetValue(StockService.Adds(x.Kind) ? x.Quantity : -x.Quantity); // 拿出、借出記成負數，方便加總
+                    rs.Cell(row, 6).SetValue(Escape(x.Unit));
+                    rs.Cell(row, 7).SetValue(Escape(x.Purpose));
+                    rs.Cell(row, 8).SetValue(Escape(x.Borrower));
+                    rs.Cell(row, 9).SetValue(x.Balance);
+                    row++;
+                }
+                rs.Columns().AdjustToContents();
+            }
+            if (loans != null)
+            {
+                var ls = Sheet(wb, "借出中", LoanHeaders);
+                int row = 2;
+                foreach (var l in loans.Where(l => l.IsOpen).OrderBy(l => l.LentAt))
+                {
+                    ls.Cell(row, 1).SetValue(l.LentAt);
+                    ls.Cell(row, 1).Style.DateFormat.Format = "yyyy/mm/dd hh:mm";
+                    ls.Cell(row, 2).SetValue(Escape(l.ItemName));
+                    ls.Cell(row, 3).SetValue(Escape(l.ItemSpec));
+                    ls.Cell(row, 4).SetValue(Escape(l.Borrower));
+                    ls.Cell(row, 5).SetValue(Escape(l.Purpose));
+                    ls.Cell(row, 6).SetValue(l.Quantity);
+                    ls.Cell(row, 7).SetValue(l.Returned);
+                    ls.Cell(row, 8).SetValue(l.Outstanding);
+                    ls.Cell(row, 9).SetValue(Escape(l.Unit));
+                    row++;
+                }
+                ls.Columns().AdjustToContents();
+            }
             wb.SaveAs(path);
+        }
+
+        private static IXLWorksheet Sheet(XLWorkbook wb, string name, string[] headers)
+        {
+            var ws = wb.Worksheets.Add(name);
+            for (int c = 0; c < headers.Length; c++)
+                ws.Cell(1, c + 1).Value = headers[c];
+            ws.Row(1).Style.Font.Bold = true;
+            ws.SheetView.FreezeRows(1);
+            return ws;
         }
 
         // 開頭的 ' 會被 ClosedXML 當成 Excel 的「文字前綴」而吞掉，多加一個才能原樣保留

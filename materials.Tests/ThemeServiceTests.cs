@@ -89,6 +89,10 @@ namespace materials.Tests
         [InlineData("App.xaml")]
         [InlineData("MainWindow.xaml")]
         [InlineData("InputDialog.xaml")]
+        [InlineData("UnitsDialog.xaml")]
+        [InlineData("StockDialog.xaml")]
+        [InlineData("ReturnDialog.xaml")]
+        [InlineData("RecordsWindow.xaml")]
         public void Xaml_UsesOnlyDynamicPaletteBrushes(string file)
         {
             var xaml = ReadXaml(file);
@@ -117,6 +121,8 @@ namespace materials.Tests
         [InlineData("TextBrush", "InputBgBrush", 7.0)]
         [InlineData("MutedBrush", "CardBrush", 4.5)]
         [InlineData("DangerBrush", "DangerSoftBrush", 4.5)]
+        [InlineData("SuccessBrush", "SuccessSoftBrush", 4.5)]
+        [InlineData("WarnBrush", "WarnSoftBrush", 4.5)]
         [InlineData("AccentBrush", "CardBrush", 3.0)]
         public void Palette_TextIsReadableInBothThemes(string fg, string bg, double minRatio)
         {

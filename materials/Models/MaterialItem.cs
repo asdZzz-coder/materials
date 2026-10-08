@@ -19,6 +19,10 @@ namespace materials.Models
         private string _unit = "";
         private string _note = "";
         private DateTime _updatedAt = DateTime.Now;
+        private decimal _lentQuantity;
+
+        /// <summary>固定識別碼，出入庫紀錄與借出單靠它對應物料（舊版存檔沒有，載入時自動補上）。</summary>
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
         public string Name { get => _name; set => Set(ref _name, value, nameof(Initial), nameof(AvatarColor)); }
 
@@ -29,12 +33,16 @@ namespace materials.Models
 
         public decimal Quantity { get => _quantity; set => Set(ref _quantity, value, nameof(QuantityDisplay), nameof(IsEmpty)); }
 
-        public string Unit { get => _unit; set => Set(ref _unit, value, nameof(QuantityDisplay)); }
+        public string Unit { get => _unit; set => Set(ref _unit, value, nameof(QuantityDisplay), nameof(LentDisplay)); }
 
         public string Note { get => _note; set => Set(ref _note, value, nameof(Subtitle)); }
 
         /// <summary>最後修改時間（新增、儲存、調整數量時更新）。</summary>
         public DateTime UpdatedAt { get => _updatedAt; set => Set(ref _updatedAt, value); }
+
+        /// <summary>借出未還的數量（由借出單算出，不存檔）；不算在 Quantity（在庫數量）裡。</summary>
+        [JsonIgnore]
+        public decimal LentQuantity { get => _lentQuantity; set => Set(ref _lentQuantity, value, nameof(LentDisplay), nameof(HasLent)); }
 
         // 螢幕閱讀器與 UI 自動化讀到的名稱（不影響存檔）
         public override string ToString() => Name;
@@ -44,6 +52,13 @@ namespace materials.Models
         /// <summary>清單右側的數量徽章，例如「12 盒」。</summary>
         [JsonIgnore]
         public string QuantityDisplay => (QuantityText.Format(Quantity) + " " + Unit.Trim()).Trim();
+
+        /// <summary>清單上的借出徽章，例如「借出 2 盒」。</summary>
+        [JsonIgnore]
+        public string LentDisplay => ("借出 " + QuantityText.Format(LentQuantity) + " " + Unit.Trim()).Trim();
+
+        [JsonIgnore]
+        public bool HasLent => LentQuantity > 0;
 
         /// <summary>數量為 0 時徽章改成紅色提醒。</summary>
         [JsonIgnore]

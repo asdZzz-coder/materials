@@ -26,6 +26,10 @@
         <SolidColorBrush x:Key="HoverBrush" Color="#F3F4F8"/>
         <SolidColorBrush x:Key="PressedBrush" Color="#E9EBF1"/>
         <SolidColorBrush x:Key="DangerPressedBrush" Color="#FECACA"/>
+        <SolidColorBrush x:Key="SuccessBrush" Color="#047857"/>
+        <SolidColorBrush x:Key="SuccessSoftBrush" Color="#ECFDF5"/>
+        <SolidColorBrush x:Key="WarnBrush" Color="#B45309"/>
+        <SolidColorBrush x:Key="WarnSoftBrush" Color="#FFFBEB"/>
         <SolidColorBrush x:Key="BorderHoverBrush" Color="#CDD1DC"/>
         <SolidColorBrush x:Key="GhostHoverBrush" Color="#E9EBF2"/>
         <SolidColorBrush x:Key="GhostPressedBrush" Color="#DFE2EB"/>

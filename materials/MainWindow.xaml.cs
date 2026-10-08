@@ -24,6 +24,13 @@ namespace materials
         private CategoryFilter _categoryFilter = CategoryFilter.All;
         private bool _rebuildingCategories;
 
+        // 預設單位：單位欄下拉面板的選項（使用者排的順序）
+        private List<string> _units;
+
+        // 出入庫紀錄與借出單（直接就是存檔裡的那兩份清單）
+        private readonly List<StockRecord> _records;
+        private readonly List<Loan> _loans;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -33,6 +40,10 @@ namespace materials
             var data = DataStore.Load();
             _items = new ObservableCollection<MaterialItem>(data.Items);
             _categories = CategoryService.Merge(data.Categories, _items);
+            _units = UnitService.Clean(data.Units);
+            _records = data.Records;
+            _loans = data.Loans;
+            RelinkStock();
             _view = CollectionViewSource.GetDefaultView(_items);
             _view.SortDescriptions.Add(new SortDescription(nameof(MaterialItem.Name), ListSortDirection.Ascending));
             MaterialList.ItemsSource = _view;
@@ -324,13 +335,19 @@ namespace materials
                 foreground: (Brush)FindResource("DangerBrush")));
         }
 
-        // 物料右鍵：數量加減、移到分類（目前所在的分類打勾）
+        // 物料右鍵：出入庫、數量加減、移到分類（目前所在的分類打勾）
         private void MaterialList_ContextMenuOpening(object sender, ContextMenuEventArgs e)
         {
             if (ItemUnderMouse<MaterialItem>(e) is not { } item) { e.Handled = true; return; }
             MaterialList.SelectedItem = item;
             var menu = MaterialList.ContextMenu;
             menu.Items.Clear();
+            menu.Items.Add(MenuEntry("存入…", () => DoStock(RecordKind.In, item)));
+            menu.Items.Add(MenuEntry("拿出…", () => DoStock(RecordKind.Out, item)));
+            menu.Items.Add(MenuEntry("借出…", () => DoStock(RecordKind.Lend, item)));
+            if (item.HasLent) menu.Items.Add(MenuEntry("歸還…", () => ReturnLoan(item)));
+            menu.Items.Add(MenuEntry("查看出入紀錄", () => OpenRecords(item, loansTab: false)));
+            menu.Items.Add(new Separator());
             menu.Items.Add(MenuEntry("數量 +1", () => AdjustQuantity(item, 1)));
             menu.Items.Add(MenuEntry("數量 −1", () => AdjustQuantity(item, -1)));
             menu.Items.Add(new Separator());
@@ -373,6 +390,7 @@ namespace materials
         {
             if (MaterialList.SelectedItem is MaterialItem m)
                 FillForm(m);
+            UpdateLoanInfo();
         }
 
         // ---------- 表單 ----------
@@ -399,6 +417,7 @@ namespace materials
             UnitBox.Clear();
             NoteBox.Clear();
             UpdatedText.Text = "";
+            LoanInfoText.Visibility = Visibility.Collapsed;
         }
 
         private void ClearForm_Click(object sender, RoutedEventArgs e)
@@ -423,7 +442,176 @@ namespace materials
             QtyBox.Text = QuantityText.Format(QuantityText.Adjust(qty, delta));
         }
 
-        private const string QuantityError = "數量請輸入 0 或正數（可以有小數，例如 0.5）。";
+        // ---------- 出入庫：存入 / 拿出 / 借出 / 歸還 ----------
+
+        /// <summary>紀錄與借出單重新對上物料，並更新每項物料的「借出中」數量。</summary>
+        private void RelinkStock()
+        {
+            StockService.Relink(_items, _loans.Concat<IItemRef>(_records).ToList());
+            var lent = StockService.Outstanding(_loans);
+            foreach (var i in _items) i.LentQuantity = lent.GetValueOrDefault(i.Id);
+        }
+
+        private void StockIn_Click(object sender, RoutedEventArgs e) => DoStock(RecordKind.In);
+
+        private void TakeOut_Click(object sender, RoutedEventArgs e) => DoStock(RecordKind.Out);
+
+        private void Lend_Click(object sender, RoutedEventArgs e) => DoStock(RecordKind.Lend);
+
+        private void Return_Click(object sender, RoutedEventArgs e) => ReturnLoan(MaterialList.SelectedItem as MaterialItem);
+
+        /// <summary>存入、拿出、借出：問數量（與用途 / 借用人），改庫存、記一筆紀錄並存檔。</summary>
+        private void DoStock(RecordKind kind, MaterialItem? item = null)
+        {
+            var name = StockService.KindName(kind);
+            item ??= MaterialList.SelectedItem as MaterialItem;
+            if (item == null)
+            {
+                MessageBox.Show($"請先在清單中選取要{name}的物料。", name);
+                return;
+            }
+            if (!StockService.Adds(kind) && item.Quantity <= 0)
+            {
+                MessageBox.Show($"「{item.Name}」目前庫存是 0，沒有可以{name}的數量。", name);
+                return;
+            }
+
+            var purposes = StockService.Recent(_records, r => r.Kind == kind, r => r.Purpose);
+            var borrowers = StockService.Recent(_records, r => r.Kind == RecordKind.Lend, r => r.Borrower);
+            var input = StockDialog.Ask(this, kind, item, purposes, borrowers);
+            if (input == null) return;
+
+            var now = DateTime.Now;
+            switch (kind)
+            {
+                case RecordKind.In:
+                    _records.Add(StockService.StockIn(item, input.Quantity, input.Purpose, now));
+                    break;
+                case RecordKind.Out:
+                    _records.Add(StockService.TakeOut(item, input.Quantity, input.Purpose, now));
+                    break;
+                case RecordKind.Lend:
+                    var (loan, record) = StockService.Lend(item, input.Quantity, input.Borrower, input.Purpose, now);
+                    _loans.Add(loan);
+                    _records.Add(record);
+                    break;
+            }
+            AfterStockChange(item);
+            var amount = (QuantityText.Format(input.Quantity) + " " + item.Unit.Trim()).Trim();
+            StatusText.Text = kind == RecordKind.Lend
+                ? $"已借出「{item.Name}」{amount} 給 {input.Borrower}，庫存剩 {item.QuantityDisplay}"
+                : $"已{name}「{item.Name}」{amount}，庫存 {item.QuantityDisplay}";
+        }
+
+        /// <summary>
+        /// 歸還：item 有值時只列這項物料的借出，否則列出全部借出未還的；preselect 是預先選好的那筆。
+        /// 有歸還時回傳 true。
+        /// </summary>
+        private bool ReturnLoan(MaterialItem? item, Loan? preselect = null)
+        {
+            const string title = "歸還";
+            var open = _loans.Where(l => l.IsOpen && (item == null || l.ItemId == item.Id)).OrderBy(l => l.LentAt).ToList();
+            if (open.Count == 0)
+            {
+                MessageBox.Show(item == null ? "目前沒有借出未還的物料。" : $"「{item.Name}」目前沒有借出未還。", title);
+                return false;
+            }
+            // 從「出入紀錄」視窗按歸還時，對話框要蓋在那個視窗上面
+            var owner = OwnedWindows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? this;
+            var input = ReturnDialog.Ask(owner, open, preselect);
+            if (input == null) return false;
+
+            var target = StockService.FindItem(_items, input.Loan);
+            _records.Add(StockService.Return(input.Loan, target, input.Quantity, input.Note, DateTime.Now));
+            AfterStockChange(target);
+            var amount = (QuantityText.Format(input.Quantity) + " " + input.Loan.Unit.Trim()).Trim();
+            StatusText.Text = target == null
+                ? $"{input.Loan.Borrower} 已歸還「{input.Loan.ItemName}」{amount}（這項物料已被刪除，不加回庫存）"
+                : $"{input.Loan.Borrower} 已歸還「{target.Name}」{amount}，庫存 {target.QuantityDisplay}";
+            return true;
+        }
+
+        /// <summary>庫存變動後：表單上的數量跟著更新（其他還沒儲存的修改不動），然後存檔。</summary>
+        private void AfterStockChange(MaterialItem? item)
+        {
+            if (item != null && MaterialList.SelectedItem == item)
+            {
+                QtyBox.Text = QuantityText.Format(item.Quantity);
+                ShowUpdated(item);
+            }
+            PersistAndRefresh();
+        }
+
+        /// <summary>表單上「出入庫」下方的小字：這項物料借給了誰、還有多少沒還。</summary>
+        private void UpdateLoanInfo()
+        {
+            var item = MaterialList.SelectedItem as MaterialItem;
+            var open = item == null ? [] : _loans.Where(l => l.IsOpen && l.ItemId == item.Id).ToList();
+            if (open.Count == 0)
+            {
+                LoanInfoText.Visibility = Visibility.Collapsed;
+                return;
+            }
+            var who = string.Join("、", open.GroupBy(l => l.Borrower, StringComparer.CurrentCultureIgnoreCase)
+                .Select(g => $"{g.Key} {QuantityText.Format(g.Sum(l => l.Outstanding))}"));
+            LoanInfoText.Text = $"借出中 {(QuantityText.Format(item!.LentQuantity) + " " + item.Unit.Trim()).Trim()}：{who}";
+            LoanInfoText.ToolTip = LoanInfoText.Text;
+            LoanInfoText.Visibility = Visibility.Visible;
+        }
+
+        private void OpenRecords(MaterialItem? item, bool loansTab) =>
+            RecordsWindow.Open(this, _records, _loans, item, loansTab, loan => ReturnLoan(null, loan));
+
+        private void Records_Click(object sender, RoutedEventArgs e) =>
+            OpenRecords(null, loansTab: _loans.Any(l => l.IsOpen));
+
+        private void ItemRecords_Click(object sender, RoutedEventArgs e) =>
+            OpenRecords(MaterialList.SelectedItem as MaterialItem, loansTab: false);
+
+        // ---------- 預設單位 ----------
+
+        public const double UnitPopupWidth = 268;
+
+        // 面板開著時按箭頭：滑鼠一按下面板就先關了，接著的 Click 不要又把它打開
+        private DateTime _unitPopupClosedAt;
+
+        private void UnitPick_Click(object sender, RoutedEventArgs e)
+        {
+            if ((DateTime.Now - _unitPopupClosedAt).TotalMilliseconds < 250) return;
+            BuildUnitChips();
+            UnitPopup.HorizontalOffset = UnitBox.ActualWidth - UnitPopupWidth; // 面板右緣對齊單位欄
+            UnitPopup.IsOpen = true;
+        }
+
+        private void UnitPopup_Closed(object? sender, EventArgs e) => _unitPopupClosedAt = DateTime.Now;
+
+        /// <summary>每次打開面板時依目前清單產生單位方塊；單位欄現在填的那個以強調色標示。</summary>
+        private void BuildUnitChips()
+        {
+            Chips.Fill(UnitChips, _units, PickUnit, highlighted: UnitBox.Text.Trim());
+            UnitChipsEmpty.Visibility = _units.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>只填入表單，跟其他欄位一樣要按「新增」或「儲存修改」才會寫入。</summary>
+        private void PickUnit(string unit)
+        {
+            UnitBox.Text = unit;
+            UnitPopup.IsOpen = false;
+            UnitBox.Focus();
+            UnitBox.CaretIndex = UnitBox.Text.Length;
+        }
+
+        private void ManageUnits_Click(object sender, RoutedEventArgs e)
+        {
+            UnitPopup.IsOpen = false;
+            var units = UnitsDialog.Edit(this, _units);
+            if (units == null) return;
+            _units = units;
+            PersistAndRefresh();
+            StatusText.Text = $"預設單位已更新（共 {_units.Count} 個）";
+        }
+
+        private const string QuantityError ="數量請輸入 0 或正數（可以有小數，例如 0.5）。";
 
         private MaterialItem? ReadForm()
         {
@@ -498,7 +686,9 @@ namespace materials
         private void Delete_Click(object sender, RoutedEventArgs e)
         {
             if (MaterialList.SelectedItem is not MaterialItem selected) return;
-            var ok = MessageBox.Show($"確定要刪除「{selected.Name}」嗎？", "刪除物料",
+            // 還有借出沒還：借出單會保留，之後仍可在「出入紀錄」按歸還（只是不會加回庫存）
+            var lentNote = selected.HasLent ? $"\n\n注意：這項物料還有 {(QuantityText.Format(selected.LentQuantity) + " " + selected.Unit.Trim()).Trim()} 借出沒還，借出紀錄會保留。" : "";
+            var ok = MessageBox.Show($"確定要刪除「{selected.Name}」嗎？{lentNote}", "刪除物料",
                 MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
             if (ok != MessageBoxResult.Yes) return;
 
@@ -519,7 +709,7 @@ namespace materials
 
             // 兩段確認，且預設按鈕都是「否」，避免手滑按 Enter 就刪掉
             var first = MessageBox.Show(
-                $"確定要刪除全部 {count} 項物料嗎？\n\n建議先用「匯出 Excel」備份。",
+                $"確定要刪除全部 {count} 項物料嗎？\n出入紀錄與借出單也會一起清除。\n\n建議先用「匯出 Excel」備份。",
                 "全部刪除", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
             if (first != MessageBoxResult.Yes) return;
 
@@ -529,6 +719,8 @@ namespace materials
             if (second != MessageBoxResult.Yes) return;
 
             _items.Clear();
+            _records.Clear();
+            _loans.Clear();
             SearchBox.Clear();
             ClearForm();
             PersistAndRefresh();
@@ -540,9 +732,13 @@ namespace materials
             var selected = MaterialList.SelectedItem as MaterialItem;
             // 物料用到、但清單裡沒有的分類（例如匯入的）一併補進清單
             _categories = CategoryService.Merge(_categories, _items);
+            RelinkStock();
             try
             {
-                DataStore.Save(_items, _categories);
+                DataStore.Save(new MaterialData
+                {
+                    Items = _items.ToList(), Categories = _categories, Units = _units, Records = _records, Loans = _loans,
+                });
             }
             catch (Exception ex)
             {
@@ -562,6 +758,7 @@ namespace materials
                 // 移到別的分類後不在目前的清單裡了 → 清空表單，避免誤按「新增」複製一筆
                 if (MaterialList.SelectedItem == null) ClearForm();
             }
+            UpdateLoanInfo();
             UpdateStatus();
         }
 
@@ -570,7 +767,8 @@ namespace materials
             // 視窗標題列顯示版本：安裝版為「物料整理 v1.0.1」，直接從 Visual Studio 執行則標示開發版
             Title = _updater.IsInstalled ? $"{AppTitle} v{_updater.CurrentVersion}" : $"{AppTitle}（開發版）";
             int categories = _categories.Count;
-            CountText.Text = $"共 {_items.Count} 項物料 · {categories} 個分類";
+            int loans = _loans.Count(l => l.IsOpen);
+            CountText.Text = $"共 {_items.Count} 項物料 · {categories} 個分類" + (loans > 0 ? $" · 借出中 {loans} 筆" : "");
             StatusText.Text = $"版本 {_updater.CurrentVersion}";
         }
 
@@ -592,8 +790,8 @@ namespace materials
             {
                 var sorted = _items.OrderBy(i => i.Category, StringComparer.CurrentCultureIgnoreCase)
                                    .ThenBy(i => i.Name, StringComparer.CurrentCultureIgnoreCase);
-                ExcelService.Export(sorted, dlg.FileName);
-                MessageBox.Show($"已匯出 {_items.Count} 項物料。", title);
+                ExcelService.Export(sorted, dlg.FileName, _records, _loans);
+                MessageBox.Show($"已匯出 {_items.Count} 項物料、{_records.Count} 筆出入紀錄。", title);
             }
             catch (Exception ex)
             {

@@ -8,7 +8,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>MaterialsKeeper</AssemblyName>
     <RootNamespace>materials</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <StartupObject>materials.Program</StartupObject>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <!-- 只保留英文與繁體中文的語系資源，省掉其他語言資料夾 -->
